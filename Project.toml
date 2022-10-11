@@ -1,0 +1,7 @@
+name = "Jaxy"
+uuid = "b8772a9c-d893-4b49-9023-b67b6b6661a1"
+authors = ["Zenna Tavares <zennatavares@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+Cassette = "7057c7e9-c182-5462-911a-8362d720325c"

@@ -1,0 +1,9 @@
+# This file is machine-generated - editing it directly is not advised
+
+julia_version = "1.7.3"
+manifest_format = "2.0"
+
+[[deps.Cassette]]
+git-tree-sha1 = "063b2e77c5537a548c5bf2f44161f1d3e1ab3227"
+uuid = "7057c7e9-c182-5462-911a-8362d720325c"
+version = "0.3.10"
