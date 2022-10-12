@@ -5,3 +5,5 @@ version = "0.1.0"
 
 [deps]
 Cassette = "7057c7e9-c182-5462-911a-8362d720325c"
+PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
+RuntimeGeneratedFunctions = "7e49a35a-f44a-4d26-94aa-eba1b4ca6b47"

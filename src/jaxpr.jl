@@ -1,3 +1,9 @@
+using RuntimeGeneratedFunctions
+RuntimeGeneratedFunctions.init(@__MODULE__)
+export to_expr,
+       make_jaxpr_ctx,
+       evaluate_jaxpr
+
 struct Var
   name::Symbol
   type::Type
@@ -53,7 +59,6 @@ function pp_jaxpr(io::IO, jaxpr::JaxExpr)
   println(io, "    in (", join([pp_atom(atom) for atom in jaxpr.outs], ", "), ")")
 end
 
-
 function pp_jaxpr_eqn(io::IO, eqn::JaxprEqn)
   println(io, "  ", pp_eqn(eqn))
 end
@@ -75,10 +80,6 @@ Base.show(io::IO, jaxpr::JaxExpr) = pp_jaxpr(io, jaxpr)
 ## Casstte Based
 using Cassette
 Cassette.@context JaxprContext
-
-function Cassette.overdub(ctx::JaxprContext, ::typeof(sin), x)
-  return x
-end
 
 function add_arg!(jaxpr::JaxExpr, v = Var(Symbol("arg", length(jaxpr.in_binders) + 1), Float64))
   push!(jaxpr.in_binders, v)
@@ -109,12 +110,14 @@ function make_jaxpr_ctx(f, args...; kwargs...)
   invars = map(x -> x.var, args_)
   ctx = JaxprContext(metadata = jaxpr)
   ret = Cassette.overdub(ctx, f, args_...; kwargs...)
+  # add return value to output of jaxpr
+  push!(jaxpr.outs, var(ret))
   ctx.metadata
 end
 
 const JLPrimitive = Union{typeof(sin), typeof(cos), typeof(+), typeof(-), typeof(*)}
 
-function Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, args...)
+function handle_boxed(ctx::JaxprContext, f::JLPrimitive, args...)
   jaxpr = ctx.metadata
   vals_ = map(val, args)
   vars_ = map(var, args)
@@ -124,17 +127,37 @@ function Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, args...)
   Boxed(outvar, outval)
 end
 
-function test_jaxpr()
-  function f(x, y, z)
-    a = sin(x)
-    b = cos(y)
-    c = a + b
-    d = c * z
-    return d
+Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed, y) = handle_boxed(ctx, f, x, y)
+Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x, y::Boxed) = handle_boxed(ctx, f, x, y)
+Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed, y::Boxed) = handle_boxed(ctx, f, x, y)
+Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed) = handle_boxed(ctx, f, x)
+
+"Construct a Julia Expr (an anonymous function) from a jaxpr"
+function to_expr(jaxpr::JaxExpr)
+  # Handle the head
+  head = Expr(:function, Expr(:tuple, [binder.name for binder in jaxpr.in_binders]...))
+  
+  # Now let's handle each equation
+  eqns = Expr(:block)
+  for eqn in jaxpr.eqns
+    eqn_expr = Expr(:call, eqn.primitive.name, [atom.name for atom in eqn.inputs]...)
+    eqn_expr = Expr(:(=), eqn.out_binders[1].name, eqn_expr)
+    push!(eqns.args, eqn_expr)
   end
-  make_jaxpr_ctx(f, 1, 2, 3)
+
+  # Now let's handle the return
+  ret_expr = Expr(:tuple, [atom.name for atom in jaxpr.outs]...)
+  push!(eqns.args, ret_expr)
+  push!(head.args, eqns)
+  head
 end
 
+"Evaluate a jaxpr"
+function evaluate_jaxpr(jaxpr, args...)
+  expr = to_expr(jaxpr)
+  f = @RuntimeGeneratedFunction(expr)
+  f(args...)
+end
 
 # ## Tracing
 # struct JaxprTracer <: Tracer
