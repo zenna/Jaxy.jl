@@ -28,7 +28,7 @@ end
 
 function interpret(expr::ValueExpr, Γ)
   @match expr begin
-    Var(name) => Γ[name]
+    Var(name) => Γ[name]  
     Lit(v) => v
     BinaryCallExpr(op, x, y) => interpret_binary(op, interpret(x, Γ), interpret(y, Γ))
     UnaryCallExpr(op, x) => interpret_unary(op, interpret(x, Γ))
@@ -60,37 +60,39 @@ function interpret(expr::LetExpr, Γ)
   interpret(expr.body, Γ′)
 end
 
-# Now let's add simple simple algebraic effect handling
-# We'll use a simple form whereby a handler will indicate changing one
-# primitive (the original) to another (the new one)
-"handle prim1 prim2"
-struct HandlerExpr
-  orig::Primitive
-  new::Primitive
+## Algebraic EFfects
+# Let's implement algebraic effects in a way similar to the Koka language
+# with effects and handlers
+
+# return x \to e
+@data HandleClause begin
+  Return(Var, ValueExpr)  # return x -> e
+  body(ValueExpr)
 end
+
+# # Now let's add simple simple algebraic effect handling
+# # We'll use a simple form whereby a handler will indicate changing one
+# # primitive (the original) to another (the new one)
+# "handle prim1 prim2"
+# struct HandlerExpr
+#   orig::Primitive
+#   new::Primitive
+# end
 
 # Now we need a handle expression, e.g. handle 1 + 1 with (handle + -)
 struct HandleExpr
-  expr::ValueExpr
   handler::HandlerExpr
+  expr::ValueExpr # FIXME not just a valueexpr
 end
 
 # Now we need to interpret this
 function interpret(expr::HandleExpr, Γ)
-  # We need to modulate the interpretation of the expr
-  # We'll do this by wrapping the interpretation of the expr
-  # in a function that will intercept the primitive
-  # and replace it with the new one
-  function intercept_primitive(prim::Primitive)
-    if prim == expr.handler.orig
-      expr.handler.new
-    else
-      prim
-    end
+  @match expr.handler begin
+    HandlerExpr(orig, new) => interpret(expr.expr, Dict(Γ, orig => new))
   end
-  
-
 end
+
+## Testing
 
 function test_create_expr1()
   x = Var(:x)
