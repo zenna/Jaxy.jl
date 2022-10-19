@@ -68,6 +68,11 @@ uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 deps = ["Libdl", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
+[[deps.MLStyle]]
+git-tree-sha1 = "0638598b2ea9c60303e036be920df8df60fe2812"
+uuid = "d8e11817-5142-5d16-987a-aa16d5891078"
+version = "0.4.14"
+
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]
 git-tree-sha1 = "42324d08725e200c23d4dfb549e0d5d89dede2d2"

@@ -36,4 +36,4 @@ plotts(res)
 
 sim(x0, x1) = euler(lotka_volterra, (x0, x1), 0.0, 0.02, Δt)
 
-# Jaxy.make_jaxpr_ctx(sim, 1.0, 1.0)
+test() = Jaxy.make_jaxpr_ctx(sim, 1.0, 1.0)
