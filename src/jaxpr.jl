@@ -79,18 +79,18 @@ end
 #   new::Primitive
 # end
 
-# Now we need a handle expression, e.g. handle 1 + 1 with (handle + -)
-struct HandleExpr
-  handler::HandlerExpr
-  expr::ValueExpr # FIXME not just a valueexpr
-end
+# # Now we need a handle expression, e.g. handle 1 + 1 with (handle + -)
+# struct HandleExpr
+#   handler::HandlerExpr
+#   expr::ValueExpr # FIXME not just a valueexpr
+# end
 
-# Now we need to interpret this
-function interpret(expr::HandleExpr, Γ)
-  @match expr.handler begin
-    HandlerExpr(orig, new) => interpret(expr.expr, Dict(Γ, orig => new))
-  end
-end
+# # Now we need to interpret this
+# function interpret(expr::HandleExpr, Γ)
+#   @match expr.handler begin
+#     HandlerExpr(orig, new) => interpret(expr.expr, Dict(Γ, orig => new))
+#   end
+# end
 
 ## Testing
 
@@ -101,6 +101,8 @@ function test_create_expr1()
   expr = LetExpr(:z, BinaryCallExpr(Add, x, y), UnaryCallExpr(Neg, z))
   expr
 end
+
+export Var, Lit, BinaryCallExpr, UnaryCallExpr, LetExpr, test_create_expr1, Add, Sub, Mul, Div, Neg, interpret
 
 # Now someting different, a nested let expression
 function test_create_expr2()
