@@ -1,8 +1,9 @@
+import Base: +
 using RuntimeGeneratedFunctions
 RuntimeGeneratedFunctions.init(@__MODULE__)
 export to_expr,
        make_jaxpr_ctx,
-       evaluate_jaxpr
+       evaluate_jaxpr, ContextualValue
 
 struct Var
   name::Symbol
@@ -77,10 +78,6 @@ end
 
 Base.show(io::IO, jaxpr::JaxExpr) = pp_jaxpr(io, jaxpr)
 
-## Casstte Based
-using Cassette
-Cassette.@context JaxprContext
-
 function add_arg!(jaxpr::JaxExpr, v = Var(Symbol("arg", length(jaxpr.in_binders) + 1), Float64))
   push!(jaxpr.in_binders, v)
   v
@@ -104,21 +101,138 @@ val(x) = x
 var(x::Boxed) = x.var
 var(x) = Lit(x)
 
+struct JaxprContext{T}
+  data::T
+end
+
+struct ContextualValue{T, U}
+  ctx::T
+  val::U
+end
+
+val(x::ContextualValue) = x.val
+
+# function Base.sin(x::Jaxy.ContextualValue)
+#   outvar = handle_boxed(sin, x.ctx, x.val)
+#   return ContextualValue(x.ctx, outvar)
+# end
+
+# function Base.:(+)(x::Jaxy.ContextualValue, y::Jaxy.ContextualValue)
+#   outvar = handle_boxed((+), x.ctx, x.val, y.val)
+#   return ContextualValue(x.ctx, outvar)
+# end
+
+const JLPrimitive = Union{typeof(sin), typeof(cos), typeof(+), typeof(-), typeof(*), typeof(Base.isless), typeof(sqrt), typeof(|), typeof(&)}
+
+# One or more (more in the case where if there is any ContextualValue, it is the first arg)
+const ARITY_1 = [:(Base.sin), :(Base.cos), :(Base.sqrt)]
+
+# Two or more (more in the case where if there are any ContextualValue, it is either the first or second arg)
+const ARITY_2 = [:(Base.:(+)), :(Base.:(-)), :(Base.:(*)), :(Base.isless), :(Base.:(|)), :(Base.:(&))]
+
+const primitives = vcat(ARITY_1, ARITY_2)
+
+const ARITY_TO_FUNCS = Dict(1 => ARITY_1,
+                            2 => ARITY_2)
+
+function combo_to_sig(combo)
+  function f((i, isctxval))
+    argname = Symbol("arg_$i")
+    if isctxval
+      Expr(:(::),  argname, :ContextualValue)
+    else
+      argname
+    end
+  end
+  map(f, enumerate(combo))
+end
+
+function generate_ctx_methods()
+  for arity in keys(ARITY_TO_FUNCS)
+    funcs = ARITY_TO_FUNCS[arity]
+    for func in funcs
+      for combo in gen_combinations(arity)
+        args = combo_to_sig(combo)
+        arg_tuple = Expr(:tuple, args...)
+        argnames = [Symbol("arg_$i") for i = 1:arity]
+        context = findfirst(combo)
+        first_context = argnames[context]
+        expr = quote
+          function $(func)($(args...))
+            args_ = map(val, $arg_tuple)
+            outvar = handle_boxed($(func), $(first_context).ctx, args_...)
+            return ContextualValue($(first_context).ctx, outvar)
+          end
+        end
+        eval(expr)
+      end
+    end
+  end
+end
+
+"Maps e.g. `n=3` to [[0,0,] ] "
+function gen_combinations(n)
+  b = (false, true)
+  Base.Iterators.filter(any, Iterators.product((b for i = 1:n)...))
+end
+
+
+
+using Base.Iterators
+generate_ctx_methods()
+# for f in ARITY_1
+#   expr = quote
+#     function $(f)(arg1::ContextualValue, args...)
+#       temp = map(val, args)
+#       args_ = val(arg1)
+#       if isempty(temp)
+#         args_ = [args_]
+#       else
+#         args_ = vcat(args_, temp)
+#       end
+#       outvar = handle_boxed($(f), arg1.ctx, args_...)
+#       return ContextualValue(arg1.ctx, outvar)
+#     end
+#   end
+#   eval(expr)
+# end
+
+# T_ = fill(:Any, 2)
+# for f in ARITY_2
+#   for i in 1:2
+#     T_[i] = :(ContextualValue)
+#     expr = quote
+#         T = map(eval, T_)
+#         function $(f)(arg1::T_1, arg2::T_2, args...) where T_1 <: T[1] where T_2 <: T[2]
+#           temp = map(val, args)
+#           args_ = vcat(val(arg1), val(arg2))
+#           if isempty(temp)
+#             args_ = args_
+#           else
+#             args_ = vcat(args_, temp)
+#           end
+#           outvar = handle_boxed($(f), args_[i].ctx, args_...)
+#           return ContextualValue(args_[i].ctx, outvar)
+#         end
+#     end
+#     eval(expr)
+#     T_[i] = :Any
+#   end
+# end
+
 function make_jaxpr_ctx(f, args...; kwargs...)
   jaxpr = JaxExpr()
   args_ = [Boxed(add_arg!(jaxpr), arg) for arg in args] # FIX TYPE
   invars = map(x -> x.var, args_)
-  ctx = JaxprContext(metadata = jaxpr)
-  ret = Cassette.overdub(ctx, f, args_...; kwargs...)
+  ctx_args = [ContextualValue(JaxprContext(jaxpr), arg) for arg in args_]
+  ret = f(ctx_args...)
   # add return value to output of jaxpr
-  push!(jaxpr.outs, var(ret))
-  ctx.metadata
+  push!(jaxpr.outs, var(ret.val))
+  return jaxpr
 end
 
-const JLPrimitive = Union{typeof(sin), typeof(cos), typeof(+), typeof(-), typeof(*)}
-
-function handle_boxed(ctx::JaxprContext, f::JLPrimitive, args...)
-  jaxpr = ctx.metadata
+function handle_boxed(f::JLPrimitive, ctx::JaxprContext, args...)
+  jaxpr = ctx.data
   vals_ = map(val, args)
   vars_ = map(var, args)
   outval = f(vals_...)
@@ -127,10 +241,15 @@ function handle_boxed(ctx::JaxprContext, f::JLPrimitive, args...)
   Boxed(outvar, outval)
 end
 
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed, y) = handle_boxed(ctx, f, x, y)
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x, y::Boxed) = handle_boxed(ctx, f, x, y)
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed, y::Boxed) = handle_boxed(ctx, f, x, y)
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed) = handle_boxed(ctx, f, x)
+# function handle_boxed(f, args)
+#   @info "Not a primitive:" f
+#   jaxpr = args.ctx.data
+#   vals_ = map(val, args.val)
+#   # outval = handle_boxed(f, args)
+#   outval = f(vals_...)
+#   outvar = Var(Symbol("out", length(jaxpr.eqns) + 1), Float64)
+#   return [Boxed(outvar, outval)]
+# end
 
 "Construct a Julia Expr (an anonymous function) from a jaxpr"
 function to_expr(jaxpr::JaxExpr)

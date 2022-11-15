@@ -1,8 +1,7 @@
 using Jaxy
 using RayTrace
 import RayTrace: Sphere, Vec3, FancySphere
-# using Colors
-# using ImageView
+
 
 "Some example spheres which should create actual image"
 function example_spheres(x, y, z)
@@ -16,17 +15,11 @@ function example_spheres(x, y, z)
   RayTrace.ListScene(scene)
 end
 
-"Render an example scene and display it"
-function render_example_spheres()
-  scene = example_spheres()
-  RayTrace.render(scene)
-end
-
 function render_scene(x, y, z)
   scene = example_spheres(x, y, z)
   RayTrace.render(scene)
 end
 
-# sim(x0, x1) = euler(lotka_volterra, (x0, x1), 0.0, 0.02, Δt)
-
 test() = Jaxy.make_jaxpr_ctx(render_scene, 1.0, 1.0, -15.0)
+
+test()
