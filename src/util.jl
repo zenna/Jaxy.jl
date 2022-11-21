@@ -2,12 +2,10 @@ export cond
 
 swap(f) = (x, y) -> f(y, x)
 
-function cond(p, λt, λf, x...)
+function cond(p::Bool, λt::Function, λf::Function, targs, fargs)
     if p 
-        λt(x...)
+        λt(targs...)
     else
-        λf(x...)
+        λf(fargs...)
     end
 end
-
-# function cond(p, λt, λf)
