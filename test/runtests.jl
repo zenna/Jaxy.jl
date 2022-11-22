@@ -16,6 +16,6 @@
 
 using Jaxy
 
-f(y) = sin(y) + 4
+func(y) = sin(y) + 4
 
-# make_jaxpr_ctx(f, 1, 3)
+make_jaxpr_ctx(func, 1)

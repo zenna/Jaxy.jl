@@ -57,7 +57,7 @@ function generate_ctx_methods()
         first_context = all_context[1]
         expr = quote
           function $(func)($(args...))
-            any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
+            any(map(has_nested_ctx, $arg_tuple)) && error("Type of args is not valid")
             @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
             args_ = map(sval, $arg_tuple)
             outvar = handle_boxed($(func), $(first_context).ctx, args_...)
@@ -80,7 +80,7 @@ function gen_ifelse_methods()
     first_context = all_context[1]
     expr = quote
       function Base.ifelse($(args...))
-        any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
+        any(map(has_nested_ctx, $arg_tuple)) && error("Type of args is not valid")
         @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
         args_ = map(sval, $arg_tuple)
         outvar = handle_boxed(ifelse, $(first_context).ctx, args_...)
