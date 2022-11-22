@@ -69,25 +69,58 @@ function sval(x::T) where {T}
   end
 end
 
+mv_ctx(x::ContextualValue) = y -> mv_ctx(x, y)
+
+Base.iterate(xs::ContextualValue) = iterate(map(mv_ctx(xs), sval(xs)))
+Base.iterate(xs::ContextualValue, i) = iterate(map(mv_ctx(xs), sval(xs)), i)
+
 function construct(x::Type{T}, args...) where {T}
   T.name.wrapper(args...)
 end
 
-function find_ctx_l(level)
-  function f(x)
-    println(repeat("\t", level), level, ":", x)
-    find_ctx(x, level)
+# function find_ctx_l(level)
+#   function f(x)
+#     println(repeat("\t", level), level, ":", x)
+#     find_ctx(x, level)
+#   end
+# end
+
+# find_ctx(x::ContextualValue, level = 1) = error("Found a contextual value")
+# find_ctx(x::Vector, level = 1) = map(find_ctx_l(level + 1), x)
+# find_ctx(x::Tuple, level = 1) = map(find_ctx_l(level + 1), x)
+# function find_ctx(x, level = 1)
+#   fields_ = fieldnames(typeof(x))
+#   if isempty(fields_)
+#     nothing
+#   else
+#     fields__ = map(f -> getfield(x, f), fields_)
+#     map(find_ctx_l(level + 1), fields__)
+#   end
+# end
+
+return_is_valid(x::Boxed) = false # ret should never be a Boxed variable
+return_is_valid(x::ContextualValue) = !has_nested_ctx(x) && typeof(x.val) == Boxed
+return_is_valid(x) = true
+
+has_nested_ctx(x::ContextualValue) = has_nested_ctx_(val(x))
+has_nested_ctx(x) = has_nested_ctx_(x)
+
+has_nested_ctx_(x_::ContextualValue) = true
+has_nested_ctx_(x_::Vector) = any(map(has_nested_ctx_, x_))
+has_nested_ctx_(x_::Tuple) = any(map(has_nested_ctx_, x_))
+function has_nested_ctx_(x_::T) where {T}
+  fields_ = fieldnames(T)
+  if isempty(fields_)
+    false
+  else
+    fields__ = map(f -> getfield(x_, f), fields_)
+    any(map(has_nested_ctx_, fields__))
   end
 end
-find_ctx(x::ContextualValue, level = 1) = error("Found a contextual value")
-find_ctx(x::Vector, level = 1) = map(find_ctx_l(level + 1), x)
-find_ctx(x::Tuple, level = 1) = map(find_ctx_l(level + 1), x)
-function find_ctx(x, level = 1)
-  fields_ = fieldnames(typeof(x))
-  if isempty(fields_)
-    nothing
-  else
-    fields__ = map(f -> getfield(x, f), fields_)
-    map(find_ctx_l(level + 1), fields__)
-  end
+has_nested_ctx_(x_::Boxed) = has_nested_ctx_(val(x_))
+
+mv_ctx(x::ContextualValue, y) = ContextualValue(x.ctx, y)
+function mv_ctx(x::ContextualValue, y::ContextualValue)
+  @assert x.ctx == y.ctx
+  y
 end

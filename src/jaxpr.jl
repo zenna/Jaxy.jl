@@ -1,6 +1,3 @@
-using RuntimeGeneratedFunctions
-RuntimeGeneratedFunctions.init(@__MODULE__)
-
 function add_arg!(jaxpr::JaxExpr, v = Var(Symbol("arg", length(jaxpr.in_binders) + 1), Float64))
   push!(jaxpr.in_binders, v)
   v
@@ -18,6 +15,7 @@ function make_jaxpr_ctx(f, args...; kwargs...)
   args_ = [Boxed(add_arg!(jaxpr), arg) for arg in args] # FIX TYPE
   ctx_args = ContextualValue[ContextualValue(JaxprContext(jaxpr), arg) for arg in args_]
   ret = f(ctx_args...)
+  return_is_valid(ret) || error("Return type is not valid")
   # add return value to output of jaxpr
   push!(jaxpr.outs, var(val(ret)))
   return jaxpr
@@ -54,13 +52,4 @@ function Base.map(f::Function, x::T...) where T <: ContextualValue
   jax1 = make_jaxpr_ctx(f, map_args_partial...)
   outvar = add_eqn!(x[1][1].ctx.data, Primitive(:map, Dict(:map => jax1)), [vars_...], Dict())
   return ContextualValue(x[1][1].ctx, Boxed(outvar, map(f, vals_...)))
-end
-
-function handle_boxed(f::JLPrimitive, ctx::JaxprContext, args...)
-  jaxpr = ctx.data
-  vals_ = map(sval, args)
-  vars_ = map(var, args)
-  outval = f(vals_...)
-  outvar = add_eqn!(jaxpr, Primitive(Symbol(f)), [vars_...], Dict())
-  Boxed(outvar, outval)
 end

@@ -1,3 +1,6 @@
+using RuntimeGeneratedFunctions
+RuntimeGeneratedFunctions.init(@__MODULE__)
+
 "Construct a Julia Expr (an anonymous function) from a jaxpr"
 function to_expr(jaxpr::JaxExpr)
   # Handle the head

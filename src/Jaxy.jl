@@ -1,6 +1,6 @@
 module Jaxy
 
-export evaluate_jaxpr, JaxExpr, make_jaxpr_ctx
+export evaluate_jaxpr, JaxExpr, make_jaxpr_ctx, primop
 
 include("util.jl")
 include("transform.jl")

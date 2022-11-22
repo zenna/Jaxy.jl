@@ -57,6 +57,7 @@ function generate_ctx_methods()
         first_context = all_context[1]
         expr = quote
           function $(func)($(args...))
+            any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
             @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
             args_ = map(sval, $arg_tuple)
             outvar = handle_boxed($(func), $(first_context).ctx, args_...)
@@ -79,6 +80,7 @@ function gen_ifelse_methods()
     first_context = all_context[1]
     expr = quote
       function Base.ifelse($(args...))
+        any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
         @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
         args_ = map(sval, $arg_tuple)
         outvar = handle_boxed(ifelse, $(first_context).ctx, args_...)
@@ -88,19 +90,6 @@ function gen_ifelse_methods()
     eval(expr)
   end
 end
-# function Base.ifelse(p::Bool, x::ContextualValue, y)
-#   args = [p, x.val, y]
-#   ctx = x.ctx
-#   outvar = handle_boxed(ifelse, ctx, args...)
-#   ContextualValue(ctx, outvar)
-# end
-
-# function Base.ifelse(p::Bool, x, y::ContextualValue)
-#   args = [p, x, y.val]
-#   ctx = y.ctx
-#   outvar = handle_boxed(ifelse, ctx, args...)
-#   ContextualValue(ctx, outvar)
-# end
 
 "Maps e.g. `n=3` to [[0,0,] ] "
 function gen_combinations(n)
@@ -108,16 +97,70 @@ function gen_combinations(n)
   Base.Iterators.filter(any, Iterators.product((b for i = 1:n)...))
 end
 
+function handle_boxed(f::JLPrimitive, ctx::JaxprContext, args...)
+  jaxpr = ctx.data
+  vals_ = map(sval, args)
+  vars_ = map(var, args)
+  outval = f(vals_...)
+  outvar = add_eqn!(jaxpr, Primitive(Symbol(f)), [vars_...], Dict())
+  Boxed(outvar, outval)
+end
+
 generate_ctx_methods()
 gen_ifelse_methods()
 
-mv_ctx(x::ContextualValue, y) = ContextualValue(x.ctx, y)
-function mv_ctx(x::ContextualValue, y::ContextualValue)
-  @assert x.ctx == y.ctx
-  y
+## Make a function a primitive
+
+function primop(f::Function, args...)
+  arity = length(args)
+  for combo in gen_combinations(arity)
+    args = combo_to_sig(combo)
+    arg_tuple = Expr(:tuple, args...)
+    argnames = [Symbol("arg_$i") for i = 1:arity]
+    context = findall(combo)
+    all_context = argnames[context]
+    first_context = all_context[1]
+    function handle_boxed_local(f, ctx::JaxprContext, args...)
+      jaxpr = ctx.data
+      vals_ = map(sval, args)
+      vars_ = map(var, args)
+      outval = f(vals_...)
+      outvar = add_eqn!(jaxpr, Primitive(Symbol(f)), [vars_...], Dict())
+      Boxed(outvar, outval)
+    end
+    quote
+      @eval function $(f)($(args...))
+        any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
+        @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
+        args_ = map(sval, $arg_tuple)
+        outvar = handle_boxed_local($(f), $(first_context).ctx, args_...)
+        return ContextualValue($(first_context).ctx, outvar)
+      end
+    end
+  end
 end
 
-mv_ctx(x::ContextualValue) = y -> mv_ctx(x, y)
-
-Base.iterate(xs::ContextualValue) = iterate(map(mv_ctx(xs), sval(xs)))
-Base.iterate(xs::ContextualValue, i) = iterate(map(mv_ctx(xs), sval(xs)), i)
+# macro primop(expr, define_promotion = true, Ts = [])
+#   @assert expr.head === :call
+#   f = expr.args[1]
+#   quote
+#       for combo in gen_combinations(length(expr.args[2:end]))
+#         args = combo_to_sig(combo)
+#         arg_tuple = Expr(:tuple, args...)
+#         argnames = [Symbol("arg_$i") for i = 1:arity]
+#         context = findall(combo)
+#         all_context = argnames[context]
+#         first_context = all_context[1] 
+#         exp = quote
+#           function $f($(args...))
+#             any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
+#             @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
+#             args_ = map(sval, $arg_tuple)
+#             outvar = handle_boxed($(func), $(first_context).ctx, args_...)
+#             return ContextualValue($(first_context).ctx, outvar)
+#           end
+#         end
+#         eval(exp)
+#       end
+#   end |> esc
+# end
