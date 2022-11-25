@@ -11,20 +11,44 @@ function add_eqn!(jaxpr::JaxExpr, primitive, inputs, params)
 end
 
 function make_jaxpr_ctx(f, args...; kwargs...)
+  for i in 1:length(args)
+    if has_nested_ctx(args[i])
+      args[i] = add_primops!(args[i])
+    end
+  end
   jaxpr = JaxExpr()
   args_ = [Boxed(add_arg!(jaxpr), arg) for arg in args] # FIX TYPE
   ctx_args = ContextualValue[ContextualValue(JaxprContext(jaxpr), arg) for arg in args_]
   ret = f(ctx_args...)
-  return_is_valid(ret) || error("Return type is not valid")
+  if has_nested_ctx(ret)
+    ret = add_primops!(ret)
+  end
   # add return value to output of jaxpr
   push!(jaxpr.outs, var(val(ret)))
   return jaxpr
 end
 
-# is_something_that_looks_like_a_literal_but_is_actually_a_contextual_value)x) = 
-
 # Current version: Changes args to cond in jaxpr, other branch is an empty jaxpr
-function cond(p::ContextualValue, λt::Function, λf::Function, targs, fargs)
+function cond(p::ContextualValue, λt::Function, λf::Function, targs_, fargs_)
+  if has_nested_ctx(p)
+    p = add_primops!(p)
+  end
+  targs = []
+  for t in targs_ 
+    if has_nested_ctx(t)
+      push!(targs, add_primops!(t))
+    else
+      push!(targs, t)
+    end
+  end
+  fargs = []
+  for i in 1:length(fargs_)  
+    if has_nested_ctx(fargs_[i])
+      push!(fargs, add_primops!(fargs_[i]))
+    else
+      push!(fargs, fargs_[i])
+    end
+  end
   jax1, jax2 = JaxExpr(), JaxExpr()
   args_t = map(val, targs)
   vals_t = sval(args_t)
@@ -39,17 +63,42 @@ function cond(p::ContextualValue, λt::Function, λf::Function, targs, fargs)
     jax2 = make_jaxpr_ctx(λf, vals_f...)
     outval = λf(vals_f...)
   end
-  outvar = add_eqn!(p.ctx.data, Primitive(:cond, Dict(:if => jax1, :else => jax2)), [var(p.val), vars_t..., vars_f...], Dict())
+  t = add_eqn!(p.ctx.data, Primitive(:vect), vars_t, Dict())
+  f = add_eqn!(p.ctx.data, Primitive(:vect), vars_f, Dict())
+  outvar = add_eqn!(p.ctx.data, Primitive(:cond, Dict(:if => jax1, :else => jax2)), [var(p.val), t, f], Dict())
   return ContextualValue(p.ctx, Boxed(outvar, outval))
 end
 
-function Base.map(f::Function, x::T...) where T <: ContextualValue
-  args = map(val, x)
-  vals_ = sval(args)
-  # Args to the first call of function f
-  map_args_partial = [first(val) for val in vals_]
-  vars_ = map(var, args)
-  jax1 = make_jaxpr_ctx(f, map_args_partial...)
-  outvar = add_eqn!(x[1][1].ctx.data, Primitive(:map, Dict(:map => jax1)), [vars_...], Dict())
-  return ContextualValue(x[1][1].ctx, Boxed(outvar, map(f, vals_...)))
+function generate_map(arity)
+  for combo in gen_combinations(arity)
+    args = combo_to_sig(combo)
+    arg_tuple = Expr(:vect, args...)
+    argnames = [Symbol("arg_$i") for i = 1:arity]
+    context = findall(combo)
+    all_context = argnames[context]
+    first_context = all_context[1]
+    expr = quote
+      function Base.map(f::Function, $(args...))
+        args_ = map(val, $arg_tuple)
+        for i = 1:length(args_)
+          if has_nested_ctx(args_[i])
+            args_[i] = add_primops!(args_[i])
+          end
+        end
+        @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
+        vals_ = sval(args_)
+        # Args to the first call of function f
+        map_args_partial = [first(val) for val in vals_]
+        vars_ = map(var, args_)
+        jax1 = make_jaxpr_ctx(f, map_args_partial...)
+        outvar = add_eqn!($(first_context).ctx.data, Primitive(:map, Dict(:map => jax1)), vars_, Dict())
+        return ContextualValue($(first_context).ctx, Boxed(outvar, map(f, vals_...)))
+      end
+    end
+    eval(expr)
+  end
 end
+
+generate_map(1)
+generate_map(2)
+generate_map(3)

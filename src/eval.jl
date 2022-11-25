@@ -1,5 +1,9 @@
 using RuntimeGeneratedFunctions
+import Base.vect, Core.tuple
 RuntimeGeneratedFunctions.init(@__MODULE__)
+
+# e = Expr(:function, Expr(:tuple), Expr(:(=), :y, 1), Expr(:tuple, :y))
+# e2 = Expr(:function, Expr(:tuple, :x), Expr(:call, e, :x), Expr(:tuple, :y))
 
 "Construct a Julia Expr (an anonymous function) from a jaxpr"
 function to_expr(jaxpr::JaxExpr)
@@ -11,20 +15,21 @@ function to_expr(jaxpr::JaxExpr)
     invars = eqn.inputs
     if eqn.primitive.name == :map
       exprs = map(to_expr, collect(values(eqn.primitive.expr)))
-      inputs = [exprs...]
+      # exprs_ = [Expr(:call, e, ) for e in exprs]
+      inputs = Any[exprs...]
     elseif eqn.primitive.name == :cond
       arg1 = eqn.inputs[1]
       invars = eqn.inputs[2:end]
       exprs = map(to_expr, collect(values(eqn.primitive.expr)))
-      inputs = [arg1.name, exprs...]
+      inputs = Any[arg1.name, exprs...]
     else
       inputs = []
     end
     for atom in invars
       if atom isa Jaxy.Lit
-        inputs = vcat(inputs, atom.val)
+        push!(inputs, atom.val)
       else
-        inputs = vcat(inputs, atom.name)
+        push!(inputs, atom.name)
       end
     end
     eqn_expr = Expr(:call, eqn.primitive.name, inputs...)

@@ -57,9 +57,15 @@ function generate_ctx_methods()
         first_context = all_context[1]
         expr = quote
           function $(func)($(args...))
-            any(map(has_nested_ctx, $arg_tuple)) && error("Type of args is not valid")
+            args_ = []
+            for arg in $arg_tuple
+              if has_nested_ctx(arg)
+                push!(args_, add_primops!(arg))
+              else
+                push!(args_, arg)
+              end
+            end
             @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
-            args_ = map(sval, $arg_tuple)
             outvar = handle_boxed($(func), $(first_context).ctx, args_...)
             return ContextualValue($(first_context).ctx, outvar)
           end
@@ -80,9 +86,15 @@ function gen_ifelse_methods()
     first_context = all_context[1]
     expr = quote
       function Base.ifelse($(args...))
-        any(map(has_nested_ctx, $arg_tuple)) && error("Type of args is not valid")
+        args_ = []
+        for arg in $arg_tuple
+          if has_nested_ctx(arg)
+            push!(args_, add_primops!(arg))
+          else
+            push!(args_, arg)
+          end
+        end
         @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
-        args_ = map(sval, $arg_tuple)
         outvar = handle_boxed(ifelse, $(first_context).ctx, args_...)
         return ContextualValue($(first_context).ctx, outvar)
       end
@@ -109,58 +121,45 @@ end
 generate_ctx_methods()
 gen_ifelse_methods()
 
-## Make a function a primitive
-
-function primop(f::Function, args...)
-  arity = length(args)
-  for combo in gen_combinations(arity)
-    args = combo_to_sig(combo)
-    arg_tuple = Expr(:tuple, args...)
-    argnames = [Symbol("arg_$i") for i = 1:arity]
-    context = findall(combo)
-    all_context = argnames[context]
-    first_context = all_context[1]
-    function handle_boxed_local(f, ctx::JaxprContext, args...)
-      jaxpr = ctx.data
-      vals_ = map(sval, args)
-      vars_ = map(var, args)
-      outval = f(vals_...)
-      outvar = add_eqn!(jaxpr, Primitive(Symbol(f)), [vars_...], Dict())
-      Boxed(outvar, outval)
+## Indicate that a function is a primitive
+function primop(f, args_actual...)
+  args = []
+  for arg in args_actual
+    if has_nested_ctx(arg)
+      push!(args, add_primops!(arg))
+    else
+      push!(args, arg)
     end
-    quote
-      @eval function $(f)($(args...))
-        any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
-        @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
-        args_ = map(sval, $arg_tuple)
-        outvar = handle_boxed_local($(f), $(first_context).ctx, args_...)
-        return ContextualValue($(first_context).ctx, outvar)
-      end
+  end
+  cvs = filter(x -> x isa ContextualValue, args)
+  if isempty(cvs)
+    return f(args...)
+  else
+    @assert all([cv.ctx == cvs[1].ctx for cv in cvs[2:end]])
+    args_ = map(val, args)
+    vars_ = map(var, args_)
+    jaxpr_ctx = cvs[1].ctx
+    outvar = add_eqn!(jaxpr_ctx.data, Primitive(Symbol(f)), [vars_...], Dict())
+    outval = f(map(sval, args_)...)
+    if has_nested_ctx(outval)
+      outval = add_primops!(outval)
     end
+    return ContextualValue(jaxpr_ctx, Boxed(outvar, outval))
   end
 end
 
-# macro primop(expr, define_promotion = true, Ts = [])
-#   @assert expr.head === :call
-#   f = expr.args[1]
-#   quote
-#       for combo in gen_combinations(length(expr.args[2:end]))
-#         args = combo_to_sig(combo)
-#         arg_tuple = Expr(:tuple, args...)
-#         argnames = [Symbol("arg_$i") for i = 1:arity]
-#         context = findall(combo)
-#         all_context = argnames[context]
-#         first_context = all_context[1] 
-#         exp = quote
-#           function $f($(args...))
-#             any(map(has_nested_ctx, $arg_tuple)) || error("Type of args is not valid")
-#             @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
-#             args_ = map(sval, $arg_tuple)
-#             outvar = handle_boxed($(func), $(first_context).ctx, args_...)
-#             return ContextualValue($(first_context).ctx, outvar)
-#           end
-#         end
-#         eval(exp)
-#       end
-#   end |> esc
-# end
+function add_primops!(x::T) where {T}
+  if x isa Tuple
+    return primop(Core.tuple, x...)
+  elseif x isa Vector
+    return primop(Base.vect, x...)
+  else
+    fields_ = fieldnames(T)
+    if isempty(fields_)
+      error("Invalid inputs")
+    else
+      fields__ = map(f -> getfield(x, f), fields_)
+      return primop(T.name.wrapper, fields__...)
+    end
+  end
+end

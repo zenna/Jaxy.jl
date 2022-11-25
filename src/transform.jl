@@ -98,10 +98,6 @@ end
 #   end
 # end
 
-return_is_valid(x::Boxed) = false # ret should never be a Boxed variable
-return_is_valid(x::ContextualValue) = !has_nested_ctx(x) && x.val isa Boxed
-return_is_valid(x) = true
-
 has_nested_ctx(x::ContextualValue) = has_nested_ctx_(val(x))
 has_nested_ctx(x) = has_nested_ctx_(x)
 
