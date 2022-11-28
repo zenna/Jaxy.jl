@@ -63,9 +63,9 @@ function cond(p::ContextualValue, λt::Function, λf::Function, targs_, fargs_)
     jax2 = make_jaxpr_ctx(λf, vals_f...)
     outval = λf(vals_f...)
   end
-  t = add_eqn!(p.ctx.data, Primitive(:vect), vars_t, Dict())
-  f = add_eqn!(p.ctx.data, Primitive(:vect), vars_f, Dict())
-  outvar = add_eqn!(p.ctx.data, Primitive(:cond, Dict(:if => jax1, :else => jax2)), [var(p.val), t, f], Dict())
+  t = add_eqn!(p.ctx.data, Primitive(:vect), vars_t, Dict{Symbol, Any}())
+  f = add_eqn!(p.ctx.data, Primitive(:vect), vars_f, Dict{Symbol, Any}())
+  outvar = add_eqn!(p.ctx.data, Primitive(:cond), [var(p.val), jax1, jax2, t, f], Dict{Symbol, Any}())
   return ContextualValue(p.ctx, Boxed(outvar, outval))
 end
 
@@ -91,7 +91,7 @@ function generate_map(arity)
         map_args_partial = [first(val) for val in vals_]
         vars_ = map(var, args_)
         jax1 = make_jaxpr_ctx(f, map_args_partial...)
-        outvar = add_eqn!($(first_context).ctx.data, Primitive(:map, Dict(:map => jax1)), vars_, Dict())
+        outvar = add_eqn!($(first_context).ctx.data, Primitive(:map), [jax1, vars_...], Dict{Symbol, Any}())
         return ContextualValue($(first_context).ctx, Boxed(outvar, map(f, vals_...)))
       end
     end

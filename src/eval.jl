@@ -13,23 +13,14 @@ function to_expr(jaxpr::JaxExpr)
   eqns = Expr(:block)
   for eqn in jaxpr.eqns
     invars = eqn.inputs
-    if eqn.primitive.name == :map
-      exprs = map(to_expr, collect(values(eqn.primitive.expr)))
-      # exprs_ = [Expr(:call, e, ) for e in exprs]
-      inputs = Any[exprs...]
-    elseif eqn.primitive.name == :cond
-      arg1 = eqn.inputs[1]
-      invars = eqn.inputs[2:end]
-      exprs = map(to_expr, collect(values(eqn.primitive.expr)))
-      inputs = Any[arg1.name, exprs...]
-    else
-      inputs = []
-    end
+    inputs = []
     for atom in invars
       if atom isa Jaxy.Lit
         push!(inputs, atom.val)
-      else
+      elseif atom isa Jaxy.Var
         push!(inputs, atom.name)
+      else
+        push!(inputs, to_expr(atom))
       end
     end
     eqn_expr = Expr(:call, eqn.primitive.name, inputs...)

@@ -32,4 +32,12 @@ function pp_atom(atom::Lit)
   return string(atom.val)
 end
 
+function pp_atom(atom::JaxExpr)
+  s = string("{lambda ", join([string(binder.name, ":", binder.type) for binder in atom.in_binders], ", "), ".  let \n")
+  for eqn in atom.eqns
+    s = s*string("  ", pp_eqn(eqn), "\n")
+  end
+  s = s*string("    in (", join([pp_atom(a) for a in atom.outs], ", "), ")}") 
+end
+
 Base.show(io::IO, jaxpr::JaxExpr) = pp_jaxpr(io, jaxpr)

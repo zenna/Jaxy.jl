@@ -115,7 +115,7 @@ function handle_boxed(f::JLPrimitive, ctx::JaxprContext, args...)
   vals_ = map(sval, args)
   vars_ = map(var, args)
   outval = f(vals_...)
-  outvar = add_eqn!(jaxpr, Primitive(Symbol(f)), [vars_...], Dict())
+  outvar = add_eqn!(jaxpr, Primitive(Symbol(f)), [vars_...], Dict{Symbol, Any}())
   Boxed(outvar, outval)
 end
 

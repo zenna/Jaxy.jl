@@ -1,13 +1,15 @@
-struct Var
+abstract type Atom end
+
+struct Var <: Atom
   name::Symbol
   type::Type
 end
 
-struct Lit{T}
+struct Lit{T} <: Atom
   val::T
 end
 
-const Atom = Union{Var, Lit}
+# const Atom = Union{Var, Lit}
 
 struct JaxprEqn
   primitive
@@ -16,7 +18,7 @@ struct JaxprEqn
   out_binders::Vector{Var}
 end
 
-struct JaxExpr
+struct JaxExpr <: Atom
   in_binders::Vector{Var}
   eqns::Vector{JaxprEqn}
   outs::Vector{Atom}
@@ -24,12 +26,9 @@ end
 
 JaxExpr() = JaxExpr([], [], [])
 
-struct Primitive{T}
+struct Primitive
   name::Symbol
-  expr::Dict{Symbol, T}
 end
-
-Primitive(name::Symbol) = Primitive(name, Dict{Symbol, JaxExpr}())
 
 struct Boxed{T}
   var::Var
