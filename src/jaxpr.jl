@@ -101,4 +101,4 @@ end
 
 generate_map(1)
 generate_map(2)
-generate_map(3)
+# generate_map(3)

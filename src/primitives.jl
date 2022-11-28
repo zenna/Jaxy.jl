@@ -66,6 +66,7 @@ function generate_ctx_methods()
               end
             end
             @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
+            args_ = map(val, args_)
             outvar = handle_boxed($(func), $(first_context).ctx, args_...)
             return ContextualValue($(first_context).ctx, outvar)
           end
