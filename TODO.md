@@ -6,5 +6,4 @@
 - Something like a register in Symbolics.jl
 
 ## Issues:
-- There are still circular references (probably in map, although it is within cond, and I've check cond, primop, add_primop and has_nested_ctx)
-- how to call higher order functions within Expr
+- RayTrace.ListScene not defined despite having imported it
