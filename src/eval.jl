@@ -8,7 +8,7 @@ RuntimeGeneratedFunctions.init(@__MODULE__)
 "Construct a Julia Expr (an anonymous function) from a jaxpr"
 function to_expr(jaxpr::JaxExpr)
   # Handle the head
-  in_vars = Expr(:tuple, [binder.name for binder in jaxpr.in_binders]...)
+  head = Expr(:function, Expr(:tuple, [binder.name for binder in jaxpr.in_binders]...))
   # Now let's handle each equation
   eqns = Expr(:block)
   for eqn in jaxpr.eqns
@@ -25,13 +25,15 @@ function to_expr(jaxpr::JaxExpr)
     end
     eqn_expr = Expr(:call, eqn.primitive.name, inputs...)
     eqn_expr = Expr(:(=), eqn.out_binders[1].name, eqn_expr)
+    eqn_expr = Expr(:local, eqn_expr)
     push!(eqns.args, eqn_expr)
   end
   # Now let's handle the return
   ret_expr = Expr(:tuple, [binder.name for binder in jaxpr.outs]...)
-  # push!(eqns.args, ret_expr)
-  # push!(head.args, eqns)
-  Expr(:function, in_vars, eqns, ret_expr)
+  # ret_expr = jaxpr.outs[1].name
+  push!(eqns.args, [binder.name for binder in jaxpr.outs]...)
+  push!(head.args, eqns)
+  head
 end
 
 "Evaluate a jaxpr"

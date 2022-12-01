@@ -1,5 +1,3 @@
-export cond
-
 swap(f) = (x, y) -> f(y, x)
 
 function cond(p::Bool, λt::Function, λf::Function, targs, fargs)
@@ -8,4 +6,13 @@ function cond(p::Bool, λt::Function, λf::Function, targs, fargs)
     else
         λf(fargs...)
     end
+end
+
+function eachrow_eager(m)
+    collect(eachrow(m))
+end
+
+function mapg(f::Function, globals, xs...)
+    f′(x...) = f(globals..., x...)
+    map(f′, xs...)
 end

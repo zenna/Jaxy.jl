@@ -2,9 +2,10 @@ using Base.Iterators
 
 const JLPrimitive = Union{typeof(sin), typeof(cos), typeof(Base.isless), typeof(sqrt),
 typeof(+), typeof(-), typeof(*),  typeof(/), typeof(|), typeof(&), typeof(^), 
-typeof(ifelse), typeof(!)}
+typeof(ifelse), typeof(!), typeof(eachrow_eager), typeof(first), typeof(exp)}
+# mapg, cond and map are also primitives but don't use `handle_boxed`, which is why they're not in the above list.
 
-const ARITY_1 = [:(Base.sin), :(Base.cos), :(Base.sqrt), :(Base.:(-)), :(Base.:(!))]
+const ARITY_1 = [:(Base.sin), :(Base.cos), :(Base.sqrt), :(Base.:(-)), :(Base.:(!)), :(Base.first), :(Base.exp)]
 
 const ARITY_2 = [:(Base.:(+)), :(Base.:(-)), :(Base.:(*)), :(Base.:(/)), :(Base.isless), :(Base.:(|)), :(Base.:(&)), :(Base.:(^))]
 
@@ -151,7 +152,7 @@ end
 
 function add_primops!(x::T) where {T}
   if x isa Tuple
-    return primop(Core.tuple, x...)
+    return primop(Core.tuple, x...)  
   elseif x isa Vector
     return primop(Base.vect, x...)
   else
@@ -163,4 +164,14 @@ function add_primops!(x::T) where {T}
       return primop(T.name.wrapper, fields__...)
     end
   end
+end
+
+function eachrow_eager(m::ContextualValue)
+  if has_nested_ctx(m)
+    m = add_primops!(m)
+  end
+  outval = eachrow_eager(sval(m))
+  outvar = add_eqn!(m.ctx.data, Primitive(:eachrow_eager), [var(m.val)], Dict{Symbol, Any}())
+  @show outval # returns SubArray, which causes some issue
+  return ContextualValue(m.ctx, Boxed(outvar, outval))
 end

@@ -88,9 +88,9 @@ function generate_map(arity)
         @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
         vals_ = sval(args_)
         # Args to the first call of function f
-        map_args_partial = [first(val) for val in vals_]
+        map_args_first = [first(val) for val in vals_]
         vars_ = map(var, args_)
-        jax1 = make_jaxpr_ctx(f, map_args_partial...)
+        jax1 = make_jaxpr_ctx(f, map_args_first...)
         outvar = add_eqn!($(first_context).ctx.data, Primitive(:map), [jax1, vars_...], Dict{Symbol, Any}())
         return ContextualValue($(first_context).ctx, Boxed(outvar, map(f, vals_...)))
       end
@@ -102,3 +102,45 @@ end
 generate_map(1)
 generate_map(2)
 # generate_map(3)
+
+function generate_mapg(arity)
+  for combo in gen_combinations(arity)
+    args = combo_to_sig(combo)
+    arg_tuple = Expr(:vect, args...)
+    argnames = [Symbol("arg_$i") for i = 1:arity]
+    context = findall(combo)
+    all_context = argnames[context]
+    first_context = all_context[1]
+    expr = quote
+      function mapg(f::Function, globals, $(args...))
+        if has_nested_ctx(globals)
+          globals = add_primops!(globals)
+        end
+        if globals isa ContextualValue
+          args_ = map(val, $arg_tuple)
+          for i = 1:length(args_)
+            if has_nested_ctx(args_[i])
+              args_[i] = add_primops!(args_[i])
+            end
+          end
+          @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
+          vals_ = sval(args_)
+          # Args to the first call of function f
+          map_args_first = [first(val) for val in vals_]
+          vars_ = map(var, args_)
+          g = sval(globals.val)
+          jax1 = make_jaxpr_ctx(f, g..., map_args_first...)
+          outvar = add_eqn!($(first_context).ctx.data, Primitive(:mapg), [jax1, var(globals.val), vars_...], Dict{Symbol, Any}())
+          return ContextualValue($(first_context).ctx, Boxed(outvar, mapg(f, sval(globals), vals_...)))
+        else
+          f′(x...) = f(globals..., x...)
+          return map(f′, $arg_tuple...)
+        end
+      end
+    end
+    eval(expr)
+  end
+end
+
+generate_mapg(1)
+generate_mapg(2)
