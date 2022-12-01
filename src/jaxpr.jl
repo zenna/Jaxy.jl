@@ -1,86 +1,3 @@
-using RuntimeGeneratedFunctions
-RuntimeGeneratedFunctions.init(@__MODULE__)
-export to_expr,
-       make_jaxpr_ctx,
-       evaluate_jaxpr
-
-struct Var
-  name::Symbol
-  type::Type
-end
-
-struct Lit{T}
-  val::T
-end
-
-const Atom = Union{Var, Lit}
-
-struct JaxprEqn
-  primitive
-  inputs::Vector{Atom}
-  params::Dict{Symbol, Any}
-  out_binders::Vector{Var}
-end
-
-struct JaxExpr
-  in_binders::Vector{Var}
-  eqns::Vector{JaxprEqn}
-  outs::Vector{Atom}
-end
-
-JaxExpr() = JaxExpr([], [], [])
-
-function test_jaxpr()
-  x = Var(:x, Float64)
-  y = Var(:y, Float64)
-  z = Var(:z, Float64)
-  eqn1 = JaxprEqn(add_p, [x, y], Dict(), [z])
-  eqn2 = JaxprEqn(mul_p, [z, z], Dict(), [z])
-  eqns = [eqn1, eqn2]
-  jaxpr = JaxExpr([x, y], eqns, [z])
-end
-
-## Pretty Printing
-"""
-Pretty Prints a Jaxpr
-Example pretty-prented:
-```
-lambda a:i32[] b:i32[] c:i32[].  let
-  d::Float64 = mul b c
-  e::Float64 = add a d
-    in (e,)'
-```
-"""
-function pp_jaxpr(io::IO, jaxpr::JaxExpr)
-  println(io, "lambda ", join([string(binder.name, ":", binder.type) for binder in jaxpr.in_binders], ", "), ".  let")
-  for eqn in jaxpr.eqns
-    println(io, "  ", pp_eqn(eqn))
-  end
-  println(io, "    in (", join([pp_atom(atom) for atom in jaxpr.outs], ", "), ")")
-end
-
-function pp_jaxpr_eqn(io::IO, eqn::JaxprEqn)
-  println(io, "  ", pp_eqn(eqn))
-end
-
-function pp_eqn(eqn::JaxprEqn)
-  return string(eqn.out_binders[1].name, "::", eqn.out_binders[1].type, " = ", eqn.primitive.name, " ", join([pp_atom(atom) for atom in eqn.inputs], ", "))
-end
-
-function pp_atom(atom::Var)
-  return string(atom.name, ":", atom.type)
-end
-
-function pp_atom(atom::Lit)
-  return string(atom.val)
-end
-
-Base.show(io::IO, jaxpr::JaxExpr) = pp_jaxpr(io, jaxpr)
-
-## Casstte Based
-using Cassette
-Cassette.@context JaxprContext
-
 function add_arg!(jaxpr::JaxExpr, v = Var(Symbol("arg", length(jaxpr.in_binders) + 1), Float64))
   push!(jaxpr.in_binders, v)
   v
@@ -93,111 +10,137 @@ function add_eqn!(jaxpr::JaxExpr, primitive, inputs, params)
   outvar
 end
 
-struct Boxed{T}
-  var::Var
-  val::T
-end
-
-val(x::Boxed) = x.val
-val(x) = x
-
-var(x::Boxed) = x.var
-var(x) = Lit(x)
-
 function make_jaxpr_ctx(f, args...; kwargs...)
+  for i in 1:length(args)
+    if has_nested_ctx(args[i])
+      args[i] = add_primops!(args[i])
+    end
+  end
   jaxpr = JaxExpr()
   args_ = [Boxed(add_arg!(jaxpr), arg) for arg in args] # FIX TYPE
-  invars = map(x -> x.var, args_)
-  ctx = JaxprContext(metadata = jaxpr)
-  ret = Cassette.overdub(ctx, f, args_...; kwargs...)
-  # add return value to output of jaxpr
-  push!(jaxpr.outs, var(ret))
-  ctx.metadata
-end
-
-const JLPrimitive = Union{typeof(sin), typeof(cos), typeof(+), typeof(-), typeof(*)}
-
-function handle_boxed(ctx::JaxprContext, f::JLPrimitive, args...)
-  jaxpr = ctx.metadata
-  vals_ = map(val, args)
-  vars_ = map(var, args)
-  outval = f(vals_...)
-
-  outvar = add_eqn!(jaxpr, Primitive(Symbol(f)), [vars_...], Dict())
-  Boxed(outvar, outval)
-end
-
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed, y) = handle_boxed(ctx, f, x, y)
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x, y::Boxed) = handle_boxed(ctx, f, x, y)
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed, y::Boxed) = handle_boxed(ctx, f, x, y)
-Cassette.overdub(ctx::JaxprContext, f::JLPrimitive, x::Boxed) = handle_boxed(ctx, f, x)
-
-"Construct a Julia Expr (an anonymous function) from a jaxpr"
-function to_expr(jaxpr::JaxExpr)
-  # Handle the head
-  head = Expr(:function, Expr(:tuple, [binder.name for binder in jaxpr.in_binders]...))
-  
-  # Now let's handle each equation
-  eqns = Expr(:block)
-  for eqn in jaxpr.eqns
-    eqn_expr = Expr(:call, eqn.primitive.name, [atom.name for atom in eqn.inputs]...)
-    eqn_expr = Expr(:(=), eqn.out_binders[1].name, eqn_expr)
-    push!(eqns.args, eqn_expr)
+  ctx_args = ContextualValue[ContextualValue(JaxprContext(jaxpr), arg) for arg in args_]
+  ret = f(ctx_args...)
+  if has_nested_ctx(ret)
+    ret = add_primops!(ret)
   end
-
-  # Now let's handle the return
-  ret_expr = Expr(:tuple, [atom.name for atom in jaxpr.outs]...)
-  push!(eqns.args, ret_expr)
-  push!(head.args, eqns)
-  head
+  # add return value to output of jaxpr
+  push!(jaxpr.outs, var(val(ret)))
+  return jaxpr
 end
 
-"Evaluate a jaxpr"
-function evaluate_jaxpr(jaxpr, args...)
-  expr = to_expr(jaxpr)
-  f = @RuntimeGeneratedFunction(expr)
-  f(args...)
+# Current version: Changes args to cond in jaxpr, other branch is an empty jaxpr
+function cond(p::ContextualValue, λt::Function, λf::Function, targs_, fargs_)
+  if has_nested_ctx(p)
+    p = add_primops!(p)
+  end
+  targs = []
+  for t in targs_ 
+    if has_nested_ctx(t)
+      push!(targs, add_primops!(t))
+    else
+      push!(targs, t)
+    end
+  end
+  fargs = []
+  for i in 1:length(fargs_)  
+    if has_nested_ctx(fargs_[i])
+      push!(fargs, add_primops!(fargs_[i]))
+    else
+      push!(fargs, fargs_[i])
+    end
+  end
+  jax1, jax2 = JaxExpr(), JaxExpr()
+  args_t = map(val, targs)
+  vals_t = sval(args_t)
+  vars_t = map(var, args_t)
+  args_f = map(val, fargs)
+  vals_f = sval(args_f)
+  vars_f = map(var, args_f)
+  if val(val(p))
+    jax1 = make_jaxpr_ctx(λt, vals_t...)
+    outval = λt(vals_t...)
+  else
+    jax2 = make_jaxpr_ctx(λf, vals_f...)
+    outval = λf(vals_f...)
+  end
+  t = add_eqn!(p.ctx.data, Primitive(:vect), vars_t, Dict{Symbol, Any}())
+  f = add_eqn!(p.ctx.data, Primitive(:vect), vars_f, Dict{Symbol, Any}())
+  outvar = add_eqn!(p.ctx.data, Primitive(:cond), [var(p.val), jax1, jax2, t, f], Dict{Symbol, Any}())
+  return ContextualValue(p.ctx, Boxed(outvar, outval))
 end
 
-# ## Tracing
-# struct JaxprTracer <: Tracer
-#   value
-#   type::Type
-# end
+function generate_map(arity)
+  for combo in gen_combinations(arity)
+    args = combo_to_sig(combo)
+    arg_tuple = Expr(:vect, args...)
+    argnames = [Symbol("arg_$i") for i = 1:arity]
+    context = findall(combo)
+    all_context = argnames[context]
+    first_context = all_context[1]
+    expr = quote
+      function Base.map(f::Function, $(args...))
+        args_ = map(val, $arg_tuple)
+        for i = 1:length(args_)
+          if has_nested_ctx(args_[i])
+            args_[i] = add_primops!(args_[i])
+          end
+        end
+        @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
+        vals_ = sval(args_)
+        # Args to the first call of function f
+        map_args_first = [first(val) for val in vals_]
+        vars_ = map(var, args_)
+        jax1 = make_jaxpr_ctx(f, map_args_first...)
+        outvar = add_eqn!($(first_context).ctx.data, Primitive(:map), [jax1, vars_...], Dict{Symbol, Any}())
+        return ContextualValue($(first_context).ctx, Boxed(outvar, map(f, vals_...)))
+      end
+    end
+    eval(expr)
+  end
+end
 
-# struct JaxprTrace <: Trace
-#   main::MainTrace
-# end
+generate_map(1)
+generate_map(2)
+# generate_map(3)
 
-# struct JaxprBuilder
-#   eqns::Vector{JaxprEqn}                # The equations in the Jaxpr
-#   tracer_to_var::Dict{Int, Var}         # tracer id to var   
-#   const_tracers::Dict{Int, JaxprTracer} # tracer id to const tracer
-#   constvals::Dict{Var, Any}
-#   tracers::Vector{JaxprTracer}
-# end
+function generate_mapg(arity)
+  for combo in gen_combinations(arity)
+    args = combo_to_sig(combo)
+    arg_tuple = Expr(:vect, args...)
+    argnames = [Symbol("arg_$i") for i = 1:arity]
+    context = findall(combo)
+    all_context = argnames[context]
+    first_context = all_context[1]
+    expr = quote
+      function mapg(f::Function, globals, $(args...))
+        if has_nested_ctx(globals)
+          globals = add_primops!(globals)
+        end
+        if globals isa ContextualValue
+          args_ = map(val, $arg_tuple)
+          for i = 1:length(args_)
+            if has_nested_ctx(args_[i])
+              args_[i] = add_primops!(args_[i])
+            end
+          end
+          @assert all([$(first_context).ctx == a.ctx for a in [$(all_context...)]])
+          vals_ = sval(args_)
+          # Args to the first call of function f
+          map_args_first = [first(val) for val in vals_]
+          vars_ = map(var, args_)
+          g = sval(globals.val)
+          jax1 = make_jaxpr_ctx(f, g..., map_args_first...)
+          outvar = add_eqn!($(first_context).ctx.data, Primitive(:mapg), [jax1, var(globals.val), vars_...], Dict{Symbol, Any}())
+          return ContextualValue($(first_context).ctx, Boxed(outvar, mapg(f, sval(globals), vals_...)))
+        else
+          f′(x...) = f(globals..., x...)
+          return map(f′, $arg_tuple...)
+        end
+      end
+    end
+    eval(expr)
+  end
+end
 
-# JaxprBuilder() = JaxprBuilder(JaxprEqn[], Dict{Int, Var}(), Dict{Int, JaxprTracer}(), Dict{Var, Any}(), JaxprTracer[])
-
-# function new_tracer!(builder::JaxprBuilder, trace::JaxprTrace, value, type)
-#   tracer = JaxprTracer(value, type)
-#   push!(builder.tracers, tracer)
-#   return tracer
-# end
-
-# function add_eqn!(builder::JaxprBuilder, eqn::JaxprEqn)
-#   push!(builder.eqns, eqn)
-#   return eqn.out_binders
-# end
-
-# function add_var!(builder::JaxprBuilder, name::Symbol, type::Type)
-#   var = Var(name, type)
-#   return var
-# end
-
-# function make_jaxpr_v1(f, absvals_in)
-#   builder = JaxprBuilder()
-
-# end
-
-# end
+generate_mapg(1)
+generate_mapg(2)
