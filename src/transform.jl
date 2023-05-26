@@ -41,6 +41,22 @@ val(x) = x
 var(x::Boxed) = x.var
 var(x) = Lit(x)
 
+name(x::Var) = x.name
+name(x::Lit) = to_symbol(x.val)
+
+to_symbol(x::Vector) = Expr(:vect, x...)
+to_symbol(x::Tuple) = Expr(:tuple, x...)
+
+function to_symbol(x::T) where {T}
+  fields_ = fieldnames(T)
+  if isempty(fields_)
+    Symbol(x)
+  else
+    fields__ = map(f -> getfield(x, f), fields_)
+    Expr(T, fields__...)
+  end
+end
+
 struct JaxprContext{T}
   data::T
 end

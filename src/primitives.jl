@@ -1,13 +1,14 @@
 using Base.Iterators
+import Base.push!
 
 const JLPrimitive = Union{typeof(sin), typeof(cos), typeof(Base.isless), typeof(sqrt),
 typeof(+), typeof(-), typeof(*),  typeof(/), typeof(|), typeof(&), typeof(^), 
-typeof(ifelse), typeof(!), typeof(eachrow_eager), typeof(first), typeof(exp)}
+typeof(ifelse), typeof(!), typeof(eachrow_eager), typeof(first), typeof(exp), typeof(lastindex), typeof(getindex)}
 # mapg, cond and map are also primitives but don't use `handle_boxed`, which is why they're not in the above list.
 
-const ARITY_1 = [:(Base.sin), :(Base.cos), :(Base.sqrt), :(Base.:(-)), :(Base.:(!)), :(Base.first), :(Base.exp)]
+const ARITY_1 = [:(Base.sin), :(Base.cos), :(Base.sqrt), :(Base.:(-)), :(Base.:(!)), :(Base.first), :(Base.exp), :(Base.lastindex)]
 
-const ARITY_2 = [:(Base.:(+)), :(Base.:(-)), :(Base.:(*)), :(Base.:(/)), :(Base.isless), :(Base.:(|)), :(Base.:(&)), :(Base.:(^))]
+const ARITY_2 = [:(Base.:(+)), :(Base.:(-)), :(Base.:(*)), :(Base.:(/)), :(Base.isless), :(Base.:(|)), :(Base.:(&)), :(Base.:(^)), :(Base.getindex)]
 
 const ARITY_3 = [:(Base.ifelse)]
 
@@ -35,13 +36,19 @@ function Base.getproperty(x::ContextualValue, key::Symbol)
   elseif key === :val
     getfield(x, :val)
   else
-    mv_ctx(x)(getproperty(sval(x), key))
+    outvar = add_eqn!(x.ctx.data, Primitive(:getproperty), [var(x.val), Lit(key)], Dict{Symbol, Any}())
+    ContextualValue(x.ctx, Boxed(outvar, getproperty(sval(x), key)))
   end
 end
 
-function Base.getindex(x::ContextualValue, i::Int)
-  mv_ctx(x)(getindex(sval(x), i))
-end
+# function Base.getindex(x::ContextualValue, i::Int)
+#   mv_ctx(x)(getindex(sval(x), i))
+# end
+
+# function Base.getindex(x::ContextualValue, i::ContextualValue)
+#   @assert x.ctx == i.ctx
+#   mv_ctx(x)(getindex(sval(x), sval(i)))
+# end
 
 Base.length(x::ContextualValue) = length(sval(x))
 
@@ -174,4 +181,12 @@ function eachrow_eager(m::ContextualValue)
   outvar = add_eqn!(m.ctx.data, Primitive(:eachrow_eager), [var(m.val)], Dict{Symbol, Any}())
   @show outval # returns SubArray, which causes some issue
   return ContextualValue(m.ctx, Boxed(outvar, outval))
+end
+
+# Creates a new variable
+function Base.push!(collection::ContextualValue, items...)
+  @assert all([collection.ctx == item.ctx for item in items if item isa ContextualValue])
+  new_items = [var(val(item)) for item in items]
+  outvar = add_eqn!(collection.ctx.data, Primitive(:push!), [var(collection.val), new_items...], Dict{Symbol, Any}())
+  return ContextualValue(collection.ctx, Boxed(outvar, push!(sval(collection), map(sval, items)...)))
 end

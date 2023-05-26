@@ -17,3 +17,11 @@
       e3 = Expr(:function, Expr(:tuple, :x), Expr(:call, :map, e, :x)) # returns [1, 2, 3] when the input is that
 - Figure out why the function calls look straange: Is it because it isn't in a block?
 - Multiple return statements
+
+- Check where `Lit` is used and change it accordingly:
+  Issue with jaxpr.outs:
+  ```
+  e = Expr(:vect, 1., 1., 1.)
+  eval(e)
+  ```
+  

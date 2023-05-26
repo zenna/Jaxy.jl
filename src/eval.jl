@@ -29,9 +29,8 @@ function to_expr(jaxpr::JaxExpr)
     push!(eqns.args, eqn_expr)
   end
   # Now let's handle the return
-  ret_expr = Expr(:tuple, [binder.name for binder in jaxpr.outs]...)
-  # ret_expr = jaxpr.outs[1].name
-  push!(eqns.args, [binder.name for binder in jaxpr.outs]...)
+  ret_symbols = [name(binder) for binder in jaxpr.outs]
+  push!(eqns.args, ret_symbols...)
   push!(head.args, eqns)
   head
 end

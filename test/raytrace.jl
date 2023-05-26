@@ -1,7 +1,7 @@
 using Jaxy
 using RayTrace
 using Colors, ImageView
-import Base.vect
+import Base.vect, Base.push!
 import RayTrace: Sphere, Vec3, FancySphere, Intersection, ListScene, trcdepth, rdirs_rorigs
 function handle_boxed(::typeof(Intersection), ctx, args...)
   @show "Enter"
@@ -20,7 +20,8 @@ function example_spheres(x, y, z)
   ListScene(scene)
 end
 
-rdirs, rorigs = rdirs_rorigs(100, 100)
+# rdirs, rorigs = rdirs_rorigs(100, 100)
+rdirs, rorigs = rdirs_rorigs(3, 3)
 rdirs = convert.(Vector, collect(eachrow(rdirs)))
 # function render_scene(x, y, z)
 #   scene = example_spheres(x, y, z)
@@ -31,6 +32,14 @@ function render_scene(x, y, z, rdirs)
   scene = example_spheres(x, y, z)
   RayTrace.render_map(scene; rdirs = rdirs, trc = trcdepth)
 end
+
+####
+import RayTrace: Ray, sceneintersect
+scene = example_spheres(0., 0., -20.)
+r = Ray(Float64[0.0, 0.0, 0.0], rdirs[3])
+test_() = make_jaxpr_ctx(sceneintersect, r, scene, [false], [Inf])
+
+test_()
 
 test() = Jaxy.make_jaxpr_ctx(render_scene, 0., 0., -20., rdirs)
 
@@ -67,12 +76,12 @@ function show_img_actual()
 end
 
 function show_img()
-  img_ = jaxy_r
+  img_ = jaxy_r[1]
   image = zeros(100, 100, 3)
   k = 1
   for i in 1:100
     for j in 1:100
-      image[j, i, :] = img_[k]
+      image[j, i, :] = img_[k][1]
       k += 1
     end
   end
