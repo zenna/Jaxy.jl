@@ -3,10 +3,6 @@ using RayTrace
 using Colors, ImageView
 import Base.vect, Base.push!
 import RayTrace: Sphere, Vec3, FancySphere, Intersection, ListScene, trcdepth, rdirs_rorigs
-# function handle_boxed(::typeof(Intersection), ctx, args...)
-#   @show "Enter"
-#   Intersection([ContextualValue(ctx, arg) for arg in args]...)
-# end
 
 "Some example spheres which should create actual image"
 function example_spheres(x, y, z)
@@ -21,30 +17,21 @@ function example_spheres(x, y, z)
 end
 
 rdirs, rorigs = rdirs_rorigs(100, 100)
-# rdirs, rorigs = rdirs_rorigs(3, 3)
 rdirs = convert.(Vector, collect(eachrow(rdirs)))
-# function render_scene(x, y, z)
-#   scene = example_spheres(x, y, z)
-#   RayTrace.test_render(scene)
-# end
 
 function render_scene(x, y, z, rdirs)
   scene = example_spheres(x, y, z)
   RayTrace.render_map(scene; rdirs = rdirs, trc = trcdepth)
 end
 
-####
-import RayTrace: Ray, sceneintersect
 scene = example_spheres(0., 0., -20.)
-r = Ray(Float64[0.0, 0.0, 0.0], rdirs[3])
-test_() = make_jaxpr_ctx(sceneintersect, r, scene, [false], [Inf])
 
 test() = Jaxy.make_jaxpr_ctx(render_scene, 0., 0., -20., rdirs)
 
-res = test();
-j = to_expr(res);
-r = eval(j);
-jaxy_r = r(0., 0., -20., rdirs);
+jaxpr_render_scene = test();
+j = to_expr(jaxpr_render_scene);
+new_render = eval(j);
+res = new_render(0., 0., -20., rdirs);
 
 function rgbimg(img)
   w = size(img)[1]
@@ -73,4 +60,4 @@ function show_img(img_)
 end
 
 show_img(render_scene(0., 0., -20., rdirs))
-show_img(jaxy_r)
+show_img(res)

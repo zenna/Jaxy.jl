@@ -2,14 +2,11 @@ using RuntimeGeneratedFunctions
 import Base.vect, Core.tuple
 RuntimeGeneratedFunctions.init(@__MODULE__)
 
-# e = Expr(:function, Expr(:tuple), Expr(:(=), :y, 1), Expr(:tuple, :y))
-# e2 = Expr(:function, Expr(:tuple, :x), Expr(:call, e, :x), Expr(:tuple, :y))
-
 "Construct a Julia Expr (an anonymous function) from a jaxpr"
 function to_expr(jaxpr::JaxExpr)
   # Handle the head
   head = Expr(:function, Expr(:tuple, [binder.name for binder in jaxpr.in_binders]...))
-  # Now let's handle each equation
+  # Handle each equation
   eqns = Expr(:block)
   for eqn in jaxpr.eqns
     invars = eqn.inputs
@@ -28,7 +25,7 @@ function to_expr(jaxpr::JaxExpr)
     eqn_expr = Expr(:local, eqn_expr)
     push!(eqns.args, eqn_expr)
   end
-  # Now let's handle the return
+  # Handle the return
   ret_symbols = [name(binder) for binder in jaxpr.outs]
   push!(eqns.args, ret_symbols...)
   push!(head.args, eqns)

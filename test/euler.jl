@@ -1,5 +1,4 @@
 # Simple simulation of Lotka Voltera
-# using DataStructures
 using Plots
 using Statistics
 using Test
@@ -7,15 +6,12 @@ using Jaxy
 
 # But we'll use an iterative version instead (for speed) and type inference
 function euler(f, u::U, t, tmax, Δt) where U
-  # series = list(u)
   series = []
   while t < tmax
     u = u .+ f(t + Δt, u) .* Δt
     t = t + Δt
-    # series = cons(u, series)
     push!(series, u)
   end
-  # series::Cons{U}
   series
 end
 

@@ -4,7 +4,6 @@ using Symbolics
 export evaluate_jaxpr, JaxExpr, make_jaxpr_ctx, primop, to_expr
 export simplify_func, simplify_make_jaxpr
 
-
 export cond, eachrow_eager, mapg
 include("util.jl")
 include("transform.jl")
