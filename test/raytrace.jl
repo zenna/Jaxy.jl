@@ -3,10 +3,10 @@ using RayTrace
 using Colors, ImageView
 import Base.vect, Base.push!
 import RayTrace: Sphere, Vec3, FancySphere, Intersection, ListScene, trcdepth, rdirs_rorigs
-function handle_boxed(::typeof(Intersection), ctx, args...)
-  @show "Enter"
-  Intersection([ContextualValue(ctx, arg) for arg in args]...)
-end
+# function handle_boxed(::typeof(Intersection), ctx, args...)
+#   @show "Enter"
+#   Intersection([ContextualValue(ctx, arg) for arg in args]...)
+# end
 
 "Some example spheres which should create actual image"
 function example_spheres(x, y, z)
@@ -20,8 +20,8 @@ function example_spheres(x, y, z)
   ListScene(scene)
 end
 
-# rdirs, rorigs = rdirs_rorigs(100, 100)
-rdirs, rorigs = rdirs_rorigs(3, 3)
+rdirs, rorigs = rdirs_rorigs(100, 100)
+# rdirs, rorigs = rdirs_rorigs(3, 3)
 rdirs = convert.(Vector, collect(eachrow(rdirs)))
 # function render_scene(x, y, z)
 #   scene = example_spheres(x, y, z)
@@ -38,8 +38,6 @@ import RayTrace: Ray, sceneintersect
 scene = example_spheres(0., 0., -20.)
 r = Ray(Float64[0.0, 0.0, 0.0], rdirs[3])
 test_() = make_jaxpr_ctx(sceneintersect, r, scene, [false], [Inf])
-
-test_()
 
 test() = Jaxy.make_jaxpr_ctx(render_scene, 0., 0., -20., rdirs)
 
@@ -62,8 +60,7 @@ function rgbimg(img)
   # clamp.(clrimg. 0.0, 1.0)
 end
 
-function show_img_actual()
-  img_ = render_scene(0., 0., -20., rdirs)
+function show_img(img_)
   image = zeros(100, 100, 3)
   k = 1
   for i in 1:100
@@ -75,15 +72,5 @@ function show_img_actual()
   rgbimg(image)
 end
 
-function show_img()
-  img_ = jaxy_r[1]
-  image = zeros(100, 100, 3)
-  k = 1
-  for i in 1:100
-    for j in 1:100
-      image[j, i, :] = img_[k][1]
-      k += 1
-    end
-  end
-  rgbimg(image)
-end
+show_img(render_scene(0., 0., -20., rdirs))
+show_img(jaxy_r)

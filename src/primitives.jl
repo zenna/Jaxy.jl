@@ -1,5 +1,5 @@
 using Base.Iterators
-import Base.push!
+import Base.push!, Base.getproperty
 
 const JLPrimitive = Union{typeof(sin), typeof(cos), typeof(Base.isless), typeof(sqrt),
 typeof(+), typeof(-), typeof(*),  typeof(/), typeof(|), typeof(&), typeof(^), 
@@ -36,10 +36,12 @@ function Base.getproperty(x::ContextualValue, key::Symbol)
   elseif key === :val
     getfield(x, :val)
   else
-    outvar = add_eqn!(x.ctx.data, Primitive(:getproperty), [var(x.val), Lit(key)], Dict{Symbol, Any}())
+    outvar = add_eqn!(x.ctx.data, Primitive(:getproperty), [var(x.val), Lit(string(key))], Dict{Symbol, Any}())
     ContextualValue(x.ctx, Boxed(outvar, getproperty(sval(x), key)))
   end
 end
+
+@inline Base.getproperty(x, key::AbstractString) = getproperty(x, Symbol(key))
 
 # function Base.getindex(x::ContextualValue, i::Int)
 #   mv_ctx(x)(getindex(sval(x), i))
