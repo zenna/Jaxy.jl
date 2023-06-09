@@ -24,8 +24,6 @@ function render_scene(x, y, z, rdirs)
   RayTrace.render_map(scene; rdirs = rdirs, trc = trcdepth)
 end
 
-scene = example_spheres(0., 0., -20.)
-
 test() = Jaxy.make_jaxpr_ctx(render_scene, 0., 0., -20., rdirs)
 
 jaxpr_render_scene = test();

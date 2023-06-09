@@ -9,8 +9,6 @@ struct Lit{T} <: Atom
   val::T
 end
 
-# const Atom = Union{Var, Lit}
-
 struct JaxprEqn
   primitive
   inputs::Vector{Atom}
