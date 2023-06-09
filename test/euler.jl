@@ -1,5 +1,4 @@
 # Simple simulation of Lotka Voltera
-using DataStructures
 using Plots
 using Statistics
 using Test
@@ -7,13 +6,13 @@ using Jaxy
 
 # But we'll use an iterative version instead (for speed) and type inference
 function euler(f, u::U, t, tmax, Δt) where U
-  series = list(u)
+  series = []
   while t < tmax
     u = u .+ f(t + Δt, u) .* Δt
     t = t + Δt
-    series = cons(u, series)
+    push!(series, u)
   end
-  series::Cons{U}
+  series
 end
 
 # ### Deterministic model
@@ -34,6 +33,9 @@ plotts(x) = plot([geti(1, x), geti(2, x)], label = ["rabbits" "wolves"])
 res = euler(lotka_volterra, (1.0, 1.0), 0.0, 10.0, Δt)
 plotts(res)
 
-sim(x0, x1) = euler(lotka_volterra, (x0, x1), 0.0, 0.02, Δt)
+sim(x0, x1) = euler(lotka_volterra, (x0, x1), 0.0, 10., Δt)
 
-# Jaxy.make_jaxpr_ctx(sim, 1.0, 1.0)
+jaxpr = Jaxy.make_jaxpr_ctx(sim, 1.0, 1.0)
+new_sim = eval(to_expr(jaxpr))
+new_res = new_sim(1.,1.)
+plotts(new_res)

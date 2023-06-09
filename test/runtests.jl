@@ -1,4 +1,5 @@
-using Test
+# using Test
+using Jaxy
 
 function test_jaxpr()
     function f(x, y, z)
@@ -10,6 +11,8 @@ function test_jaxpr()
     end
     jaxpr = make_jaxpr_ctx(f, 1, 2, 3)
     expr = to_expr(jaxpr)
+    expr
 end
 
-include("euler.jl")
+func(y) = sin(y) + 4
+make_jaxpr_ctx(func, 1)

@@ -1,44 +1,40 @@
-struct EvalTrace
-  level::Int
-end
+using RuntimeGeneratedFunctions
+import Base.vect, Core.tuple
+RuntimeGeneratedFunctions.init(@__MODULE__)
 
-function process_primitive(trace::EvalTrace, primitive::Primitive, tracers, params)
-  return impl_rules[primitive](tracers; params)
-end
-
-pure(trace::EvalTrace, x) = x
-lift(trace::EvalTrace, x) = x
-
-const impl_rules = Dict{Primitive, Function}()
-
-g(f) = (args...) -> [f(args...)]
-impl_rules[add_p] = g(+)
-impl_rules[mul_p] = g(*)
-impl_rules[neg_p] = g(-)
-impl_rules[sin_p] = g(sin)
-impl_rules[cos_p] = g(cos)
-impl_rules[reduce_sum_p] = g(sum)
-impl_rules[greater_p] = g(>)
-impl_rules[less_p] = g(<)
-impl_rules[transpose_p] = g(transpose)
-
-# trace_stack.append(MainTrace(0, EvalTrace, None))  # special bottom of the stack
-
-function test()
-  function f(x)
-    y = sin(x) * 2.
-    z = - y + x
-    return z
+"Construct a Julia Expr (an anonymous function) from a jaxpr"
+function to_expr(jaxpr::JaxExpr)
+  # Handle the head
+  head = Expr(:function, Expr(:tuple, [binder.name for binder in jaxpr.in_binders]...))
+  # Handle each equation
+  eqns = Expr(:block)
+  for eqn in jaxpr.eqns
+    invars = eqn.inputs
+    inputs = []
+    for atom in invars
+      if atom isa Jaxy.Lit
+        push!(inputs, atom.val)
+      elseif atom isa Jaxy.Var
+        push!(inputs, atom.name)
+      else
+        push!(inputs, to_expr(atom))
+      end
+    end
+    eqn_expr = Expr(:call, eqn.primitive.name, inputs...)
+    eqn_expr = Expr(:(=), eqn.out_binders[1].name, eqn_expr)
+    eqn_expr = Expr(:local, eqn_expr)
+    push!(eqns.args, eqn_expr)
   end
+  # Handle the return
+  ret_symbols = [name(binder) for binder in jaxpr.outs]
+  push!(eqns.args, ret_symbols...)
+  push!(head.args, eqns)
+  head
+end
 
-  print(f(3.0))
-
-  # function vp_v1(f, primals, tangents):
-  # with new_main(JVPTrace) as main:
-  #   trace = EvalTrace(main)
-  #   tracers_in = [3.0]
-  #   out = f(*tracers_in)
-  #   tracer_out = full_raise(trace, out)
-  #   primal_out, tangent_out = tracer_out.primal, tracer_out.tangent
-  # return primal_out, tangent_out
+"Evaluate a jaxpr"
+function evaluate_jaxpr(jaxpr, args...)
+  expr = to_expr(jaxpr)
+  f = @RuntimeGeneratedFunction(expr)
+  f(args...)
 end

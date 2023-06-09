@@ -1,78 +1,135 @@
+abstract type Atom end
+
+struct Var <: Atom
+  name::Symbol
+  type::Type
+end
+
+struct Lit{T} <: Atom
+  val::T
+end
+
+struct JaxprEqn
+  primitive
+  inputs::Vector{Atom}
+  params::Dict{Symbol, Any}
+  out_binders::Vector{Var}
+end
+
+struct JaxExpr <: Atom
+  in_binders::Vector{Var}
+  eqns::Vector{JaxprEqn}
+  outs::Vector{Atom}
+end
+
+JaxExpr() = JaxExpr([], [], [])
 
 struct Primitive
   name::Symbol
 end
 
-## Primitives
-add_p = Primitive(:add)
-mul_p = Primitive(:mul)
-neg_p = Primitive(:neg)
-sin_p = Primitive(:sin)
-cos_p = Primitive(:cos)
-reduce_sum_p = Primitive(:reduce_sum)
-greater_p = Primitive(:greater)
-less_p = Primitive(:less)
-transpose_p = Primitive(:transpose)
-broadcast_p = Primitive(:broadcast)
-
-# add(x, y) = bind1(add_p, x, y)
-# mul(x, y) = bind1(mul_p, x, y)
-# neg(x) = bind1(neg_p, x)
-# sin(x) = bind1(sin_p, x)
-# cos(x) = bind1(cos_p, x)
-# reduce_sum(x) = bind1(reduce_sum_p, x)
-# greater(x, y) = bind1(greater_p, x, y)
-# less(x, y) = bind1(less_p, x, y)
-# transpose(x) = bind1(transpose_p, x)
-# broadcast(x) = bind1(broadcast_p, x)
-
-function bind1(p::Primitive, args...; kwargs...)
-  bind(prim, args...; kwargs...)
+struct Boxed{T}
+  var::Var
+  val::T
 end
 
-function bind(prim, args...; params)
-  top_trace = find_top_trace(args)  # Find which interpreter should handle this primitive application
-  tracers = [full_raise(top_trace, arg) for arg in args]
-  outs = top_trace.process_primitive(prim, tracers, params)
-  return [full_lower(out) for out in outs]
+val(x::Boxed) = x.val
+val(x) = x
+
+var(x::Boxed) = x.var
+var(x) = Lit(x)
+
+name(x::Var) = x.name
+name(x::Lit) = to_symbol(x.val)
+
+to_symbol(x::Vector) = Expr(:vect, x...)
+to_symbol(x::Tuple) = Expr(:tuple, x...)
+
+function to_symbol(x::T) where {T}
+  fields_ = fieldnames(T)
+  if isempty(fields_)
+    Symbol(x)
+  else
+    fields__ = map(f -> getfield(x, f), fields_)
+    Expr(T, fields__...)
+  end
 end
 
-"Returns the highest-level interpreter associated with the Tracers on its inputs,
- and otherwise returns the interpreter at the bottom of the stack"
-function find_top_trace(args)
-  fx, i = findmax( )
+struct JaxprContext{T}
+  data::T
 end
 
-"A MainTrace is an interpreter" # Why is it called MainTrace?
-struct MainTrace{D, T}
-  level::Int  # 
-  trace_type::T
-  global_data::D
+struct ContextualValue{U}
+  ctx::JaxprContext
+  # var::Var
+  val::U
 end
 
-# We represent the active (what does this mean?) interpreters as a stack of interpreters
-trace_stack = MainTrace[]
-# dynamic_trace = 
+val(x::ContextualValue) = x.val
+ctx(x::ContextualValue) = x.ctx
 
-# function new_main(trace_type::Trace; global_data = nothign)
-#   level = length(trace_stack)
+sval(x::Boxed) = sval(val(x))
+sval(x::ContextualValue) = sval(val(x))
+sval(x::Vector) = map(sval, x)
+sval(x::Tuple) = map(sval, x)
+function sval(x::T) where {T}
+  fields_ = fieldnames(T)
+  if isempty(fields_)
+    x
+  else
+    fields__ = map(f -> getfield(x, f), fields_)
+    construct(T, map(sval, fields__)...)
+  end
+end
+
+mv_ctx(x::ContextualValue) = y -> mv_ctx(x, y)
+
+Base.iterate(xs::ContextualValue) = iterate(map(mv_ctx(xs), sval(xs)))
+Base.iterate(xs::ContextualValue, i) = iterate(map(mv_ctx(xs), sval(xs)), i)
+
+function construct(x::Type{T}, args...) where {T}
+  T.name.wrapper(args...)
+end
+
+# function find_ctx_l(level)
+#   function f(x)
+#     println(repeat("\t", level), level, ":", x)
+#     find_ctx(x, level)
+#   end
 # end
 
-# Interpreters
+# find_ctx(x::ContextualValue, level = 1) = error("Found a contextual value")
+# find_ctx(x::Vector, level = 1) = map(find_ctx_l(level + 1), x)
+# find_ctx(x::Tuple, level = 1) = map(find_ctx_l(level + 1), x)
+# function find_ctx(x, level = 1)
+#   fields_ = fieldnames(typeof(x))
+#   if isempty(fields_)
+#     nothing
+#   else
+#     fields__ = map(f -> getfield(x, f), fields_)
+#     map(find_ctx_l(level + 1), fields__)
+#   end
+# end
 
-"A Trace is a non-standard interpreter"
-struct Trace
-  main::MainTrace
+has_nested_ctx(x::ContextualValue) = has_nested_ctx_(val(x))
+has_nested_ctx(x) = has_nested_ctx_(x)
+
+has_nested_ctx_(x_::ContextualValue) = true
+has_nested_ctx_(x_::Vector) = any(map(has_nested_ctx_, x_))
+has_nested_ctx_(x_::Tuple) = any(map(has_nested_ctx_, x_))
+function has_nested_ctx_(x_::T) where {T}
+  fields_ = fieldnames(T)
+  if isempty(fields_)
+    false
+  else
+    fields__ = map(f -> getfield(x_, f), fields_)
+    any(map(has_nested_ctx_, fields__))
+  end
 end
+has_nested_ctx_(x_::Boxed) = has_nested_ctx_(val(x_))
 
-function pure end
-function val end
-
-"A Tracer corresponds to a value that is being traced by an interpreter"
-abstract type Tracer end
-
-array_priority(::Tracer) = 1000 # Where does this magic number come from?
-
-# What does this mean?
-function aval end
-function full_lower end
+mv_ctx(x::ContextualValue, y) = ContextualValue(x.ctx, y)
+function mv_ctx(x::ContextualValue, y::ContextualValue)
+  @assert x.ctx == y.ctx
+  y
+end
